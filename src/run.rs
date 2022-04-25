@@ -89,13 +89,14 @@ impl State {
         };
         surface.configure(&device, &config);
         
+        let (texture_size, texture_desc, texture, texture_view) = Self::get_screen_texture(&device);
         let screen_buffer= Self::get_screen_buffer(&device);
         let (compute_texture_size, compute_texture_desc, compute_texture, compute_texture_view) = Self::get_compute_texture(&device);
 
         let (bind_group, bind_group_layouts, stuff_buffer, compute_buffer) = Self::get_bind_group(&device, &screen_buffer, &Stuff::new(), &compute_texture_view);
         let vertex_buffer = Self::get_vertex_buffer(&device);
 
-        let active_shader = ActiveShader::Plotquations;
+        let active_shader = ActiveShader::Raymarch;
 
         let mut state = Self { 
             surface: Some(surface), device, queue, config: Some(config), size: Some(size), render_pipeline: None, compute_pipeline: None, work_group_count: 1,
@@ -105,7 +106,8 @@ impl State {
             compile_status: false,
             shader_code: None,
             time: std::time::Instant::now(),
-            screen_texture: None, screen_texture_size: None, screen_texture_desc: None, screen_texture_view: None,
+            // screen_texture: None, screen_texture_size: None, screen_texture_desc: None, screen_texture_view: None,
+            screen_texture: Some(texture), screen_texture_size: Some(texture_size), screen_texture_desc: Some(texture_desc), screen_texture_view: Some(texture_view),
             screen_buffer,
             compute_texture, compute_texture_desc, compute_texture_size, compute_texture_view,
         };
@@ -146,7 +148,7 @@ impl State {
         stuff.windowless = 1;
         let (bind_group, bind_group_layouts, stuff_buffer, compute_buffer) = Self::get_bind_group(&device, &screen_buffer, &stuff, &compute_texture_view);
         
-        let active_shader = ActiveShader::Plotquations;
+        let active_shader = ActiveShader::Raymarch;
 
         let mut state = Self {
             surface: None, size: None, device, queue, config: None, render_pipeline: None, compute_pipeline: None, work_group_count: 1,
@@ -395,8 +397,8 @@ impl State {
         self.stuff.display_width = RENDER_WIDTH;
         self.stuff.windowless = 1;
         self.queue.write_buffer(&self.stuff_buffer, 0, bytemuck::cast_slice(&[self.stuff]));
-        // let compute_enabled = self.importer.compute;
-        // self.importer.compute = false;
+        let compute_enabled = self.importer.compute;
+        self.importer.compute = false;
 
         self.compile_render_shaders();
         if self.importer.compute | self.compute_pipeline.is_none() {
@@ -408,7 +410,7 @@ impl State {
 
         self.stuff = stuff_copy;
         self.queue.write_buffer(&self.stuff_buffer, 0, bytemuck::cast_slice(&[self.stuff]));
-        // state.importer.compute = compute_enabled;
+        self.importer.compute = compute_enabled;
 
         self.compile_render_shaders();
         if self.importer.compute | self.compute_pipeline.is_none() {
@@ -482,13 +484,9 @@ impl State {
                             },
                             VirtualKeyCode::P => {
                                 match self.active_shader {
-                                    ActiveShader::Buddhabrot => { // image is rendered in compute_texture, so just dump it
+                                    ActiveShader::Raymarch => { // image is rendered in compute_texture, so just dump it
                                         self.dump_render();
                                     }
-                                    ActiveShader::Mandlebrot => { // since resolution cannot be increased anyway, do not render
-                                        self.dump_compute_texture();
-                                    }
-                                    _ => self.dump_render(),
                                 }
                             },
                             VirtualKeyCode::F => {
@@ -499,21 +497,7 @@ impl State {
                                 }
                             },
                             VirtualKeyCode::Key1 => {
-                                self.active_shader = ActiveShader::Plotquations;
-                                self.importer = shader_importer::Importer::new(&self.active_shader.to_string());
-                                if self.compile() {
-                                    self.reset_buffers(false);
-                                }
-                            },
-                            VirtualKeyCode::Key2 => {
-                                self.active_shader = ActiveShader::Buddhabrot;
-                                self.importer = shader_importer::Importer::new(&self.active_shader.to_string());
-                                if self.compile() {
-                                    self.reset_buffers(false);
-                                }
-                            },
-                            VirtualKeyCode::Key3 => {
-                                self.active_shader = ActiveShader::Mandlebrot;
+                                self.active_shader = ActiveShader::Raymarch;
                                 self.importer = shader_importer::Importer::new(&self.active_shader.to_string());
                                 if self.compile() {
                                     self.reset_buffers(false);
@@ -722,7 +706,6 @@ impl State {
     }
 
     async fn render_windowless(&mut self) {
-
         let u32_size = std::mem::size_of::<u32>() as u32;    
         let output_buffer_size = (u32_size * self.screen_texture_size.as_ref().unwrap().0 * self.screen_texture_size.as_ref().unwrap().1) as wgpu::BufferAddress;
         let output_buffer_desc = wgpu::BufferDescriptor {
@@ -856,17 +839,13 @@ pub fn main() {
 
 #[derive(Clone, Copy, Debug)]
 enum ActiveShader {
-    Plotquations,
-    Buddhabrot,
-    Mandlebrot,
+    Raymarch,
 }
 
 impl ToString for ActiveShader {
     fn to_string(&self) -> String {
         match self {
-            Self::Plotquations => "./src/plotquations.wgsl",
-            Self::Buddhabrot => "./src/buddhabrot.wgsl",
-            Self::Mandlebrot => "./src/mandlebrot.wgsl",
+            Self::Raymarch => "./src/raymarch.wgsl",
         }.to_owned()
     }
 }
