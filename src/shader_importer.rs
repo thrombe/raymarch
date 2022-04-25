@@ -20,7 +20,7 @@ impl Importer {
         }
     }
 
-    pub fn check_and_import(&mut self) -> Option<String> {
+    pub fn check_if_modified(&self) -> Option<(String, u64)> {
         let mut modified: String = "".to_string();
         let mut mod_time: u64 = 0;
         for (path, time) in self.all_imports.iter() {
@@ -35,6 +35,14 @@ impl Importer {
             }
         }
         if mod_time == 0 {return None}
+        Some((modified, mod_time))
+    }
+
+    pub fn check_and_import(&mut self) -> Option<String> {
+        let (modified, mod_time) = match self.check_if_modified() {
+            Some(e) => e,
+            None => return None,
+        };
         dbg!("something edited");
         let rez = self.update_metadata(&modified).is_none(); // bad file name or something
         self.all_imports.insert(modified, mod_time);

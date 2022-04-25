@@ -150,6 +150,14 @@ fn main_fragment([[builtin(position)]] pos: vec4<f32>) -> [[location(0)]] vec4<f
     tot = tot/f32(AA*AA);
 
     let tot = v4f(tot, 1.0);
+    let pos = input_coords;
+    textureStore(compute_texture, vec2<i32>(i32(pos.x), i32(pos.y)), tot);
 	return tot;
 }
 
+
+[[stage(fragment)]]
+fn za_main_fragment([[builtin(position)]] pos: vec4<f32>) -> [[location(0)]] vec4<f32> {
+    var col = textureLoad(compute_texture, vec2<i32>(i32(pos.x), i32(pos.y))).xyz;
+    return v4f(col, 1.0);
+}

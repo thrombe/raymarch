@@ -51,7 +51,11 @@ struct State {
     compute_buffer: wgpu::Buffer,
     bind_group_layouts: wgpu::BindGroupLayout,
     bind_group: wgpu::BindGroup,
+
     time: std::time::Instant,
+    za_warudo: bool,
+    submit_old: bool,
+    one_frame: bool,
 }
 
 impl State {
@@ -105,7 +109,7 @@ impl State {
             importer: shader_importer::Importer::new(&active_shader.to_string()), active_shader,
             compile_status: false,
             shader_code: None,
-            time: std::time::Instant::now(),
+            time: std::time::Instant::now(), za_warudo: false, submit_old: false, one_frame: false,
             // screen_texture: None, screen_texture_size: None, screen_texture_desc: None, screen_texture_view: None,
             screen_texture: Some(texture), screen_texture_size: Some(texture_size), screen_texture_desc: Some(texture_desc), screen_texture_view: Some(texture_view),
             screen_buffer,
@@ -157,7 +161,7 @@ impl State {
             importer: shader_importer::Importer::new(&active_shader.to_string()), active_shader,
             compile_status: false,
             shader_code: None,
-            time: std::time::Instant::now(),
+            time: std::time::Instant::now(), za_warudo: false, submit_old: false, one_frame: false,
             screen_texture: Some(texture), screen_texture_size: Some(texture_size), screen_texture_desc: Some(texture_desc), screen_texture_view: Some(texture_view),
             screen_buffer,
             compute_texture, compute_texture_desc, compute_texture_size, compute_texture_view,
@@ -400,6 +404,7 @@ impl State {
         let compute_enabled = self.importer.compute;
         self.importer.compute = false;
 
+        self.submit_old = false;
         self.compile_render_shaders();
         if self.importer.compute | self.compute_pipeline.is_none() {
             self.compile_compute_shaders();
@@ -412,9 +417,13 @@ impl State {
         self.queue.write_buffer(&self.stuff_buffer, 0, bytemuck::cast_slice(&[self.stuff]));
         self.importer.compute = compute_enabled;
 
-        self.compile_render_shaders();
-        if self.importer.compute | self.compute_pipeline.is_none() {
-            self.compile_compute_shaders();
+        if self.za_warudo {
+            self.one_frame = true;
+        } else {
+            self.compile_render_shaders();
+            if self.importer.compute | self.compute_pipeline.is_none() {
+                self.compile_compute_shaders();
+            }
         }
     }
 
@@ -426,6 +435,10 @@ impl State {
             }
             [[stage(fragment)]]
             fn main_fragment([[builtin(position)]] pos: vec4<f32>) -> [[location(0)]] vec4<f32> {
+                return vec4<f32>(1.0);
+            }
+            [[stage(fragment)]]
+            fn za_main_fragment([[builtin(position)]] pos: vec4<f32>) -> [[location(0)]] vec4<f32> {
                 return vec4<f32>(1.0);
             }
             [[stage(compute), workgroup_size(1)]]
@@ -443,6 +456,10 @@ impl State {
 
             self.stuff.display_width = self.size.unwrap().width;
             self.stuff.display_height = self.size.unwrap().height;
+
+            if self.za_warudo {
+                self.one_frame = true;
+            }
         }
     }
 
@@ -481,6 +498,19 @@ impl State {
                         match k {
                             VirtualKeyCode::R => {
                                 self.reset_buffers(true);
+                                if self.za_warudo {
+                                    self.one_frame = true;
+                                }
+                            },
+                            VirtualKeyCode::T => {
+                                if self.za_warudo {
+                                    self.submit_old = false;
+                                    self.compile_render_shaders();
+
+                                    self.time = std::time::Instant::now().checked_sub(std::time::Duration::from_secs_f32(self.stuff.time)).unwrap();
+                                }
+                                self.za_warudo = !self.za_warudo;
+                                dbg!("Za Warudo!!!");
                             },
                             VirtualKeyCode::P => {
                                 match self.active_shader {
@@ -499,9 +529,7 @@ impl State {
                             VirtualKeyCode::Key1 => {
                                 self.active_shader = ActiveShader::Raymarch;
                                 self.importer = shader_importer::Importer::new(&self.active_shader.to_string());
-                                if self.compile() {
-                                    self.reset_buffers(false);
-                                }
+                                self.reset_buffers(false);
                             },
                             _ => return false,
                         }
@@ -515,14 +543,39 @@ impl State {
     }
 
     fn update(&mut self) {
-        self.stuff.time = self.time.elapsed().as_secs_f32();
-
+        if !self.za_warudo {
+            self.stuff.time = self.time.elapsed().as_secs_f32();
+        }
+        
         self.queue.write_buffer(&self.stuff_buffer, 0, bytemuck::cast_slice(&[self.stuff]));
 
-        self.compile();
+        if !self.za_warudo {
+            self.compile();
+        } else {
+            // execute the main_fragment once, then switch to za_main_fragment. then keep trying to compile with submit_old == false
+            // cuz then if it compiles, it means it was edited. so it needs to run main_fragment once anyway, then again switch to
+            // za_main_fragment
+            if self.importer.check_if_modified().is_some() {
+                self.submit_old = false;
+                if let Some(true) = self.compile() {
+                    self.one_frame = false;
+                }
+            } else {
+                if !self.submit_old {
+                    self.submit_old = true;
+                    self.compile_render_shaders();
+                }
+                if self.one_frame {
+                    self.one_frame = false;
+                    self.submit_old = false;
+                    self.compile_render_shaders();
+                }
+            }
+        }
     }
 
-    fn compile(&mut self) -> bool {
+    // None means no edits, true is successful, false is failed
+    fn compile(&mut self) -> Option<bool> {
         let shader_code = {
             if self.shader_code.is_none() {
                 Some(Self::fallback_shader())
@@ -532,8 +585,7 @@ impl State {
                 self.importer.import()
             }
         };
-        if shader_code.is_none() {return true}
-        if !self.compile_status && self.shader_code == shader_code {return true}
+        if shader_code.is_none() {return None} // files not edited
         self.shader_code = shader_code;
 
         let mut compile_stat = self.compile_render_shaders();
@@ -549,7 +601,7 @@ impl State {
                 self.work_group_count = work_group_count;
             }
         };
-        compile_stat
+        Some(compile_stat)
     }
 
     fn compile_render_shaders(&mut self) -> bool {
@@ -579,7 +631,7 @@ impl State {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "main_fragment",
+                entry_point: if self.submit_old {"za_main_fragment"} else {"main_fragment"},
                 targets: &[wgpu::ColorTargetState {
                     format,
                     blend: Some(wgpu::BlendState::REPLACE),
