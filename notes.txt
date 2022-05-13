@@ -1,0 +1,34 @@
+
+
+
+
+plan:
+  . try running glsl shaders in gpustuff, so shadertoy stuff is easy + 64 bit floats
+  . make a physically based raymarcher + bounding volume optimisations
+    . have a mouse bias (like the buddhabrot one)
+  . quarternion julia sets
+  . mandlebulb + variations with 3d number system
+    . different definitions of numerical operations
+    . http://www.bugman123.com/Hypercomplex/index.html
+  . space folding fractals?
+    . the fractals that use mirroring and sphere inverting and stuff
+    . like the marble marcher by codeparade
+
+
+notes:
+  . gradient vector = [fx(x, y), fy(x, y)] // fx is -> del f/del x
+    . is perpendicular to isosurfaces
+    . also = del f
+  . gradient . direction unit vector -> is the directional derivative
+    . Dfu (f subscript u) = del f . u // u has a vector arrrow on its head
+    . u is unit vector in required direction
+    . "." is the vector dot product
+  . normal of any scalar field/scalar volume function
+    . (a lil bit of confusion: scalar field with a 3d normal vector???)
+    . f(x, y) -> R
+    . let r(x, y) = [x, y, f(x, y)]
+    . let rx(x, y) = [1, 0, fx(x, y)] // direction vector of slope of f wrt x at (x, y)
+    . let ry(x, y) = [0, 1, fy(x, y)] // direction vector of slope of f wrt y at (x, y)
+    . r(x0, y0) + t*rx(x0, y0) is the tangent line at (x0, y0) parallel to x axis
+    . normal at (x0, y0) = normalise(cross(rx, ry)) ?????
+
